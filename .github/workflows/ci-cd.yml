@@ -1,0 +1,370 @@
+name: LimitlessFlashBot CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Smart Contract Testing and Compilation
+  contracts-test:
+    name: Smart Contract Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./contracts
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: contracts/package-lock.json
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Compile contracts
+      run: npm run build
+      
+    - name: Run contract tests
+      run: npm test
+      
+    - name: Generate gas report
+      run: npm run test:gas
+      env:
+        REPORT_GAS: true
+        
+    - name: Run coverage
+      run: npm run test:coverage
+      
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./contracts/coverage/lcov.info
+        flags: contracts
+        name: contracts-coverage
+
+  # Executor Testing
+  executor-test:
+    name: Executor Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./executor
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: executor/package-lock.json
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r python/requirements.txt
+        
+    - name: Install Node.js dependencies
+      run: npm ci
+      
+    - name: Run executor tests
+      run: npm test
+      
+    - name: Run linting
+      run: npm run lint
+
+  # Frontend Testing and Building
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web/limitless-flash-dashboard
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: web/limitless-flash-dashboard/package-lock.json
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run linting
+      run: npm run lint
+      
+    - name: Build frontend
+      run: npm run build
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: frontend-build
+        path: web/limitless-flash-dashboard/dist
+
+  # Integration Tests on Testnet Fork
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [contracts-test, executor-test]
+    defaults:
+      run:
+        working-directory: ./contracts
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: contracts/package-lock.json
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run Hardhat node with mainnet fork
+      run: |
+        npx hardhat node --fork ${{ secrets.MAINNET_RPC_URL }} &
+        sleep 10
+      env:
+        MAINNET_RPC_URL: ${{ secrets.QUICKNODE_RPC || secrets.INFURA_RPC || secrets.ALCHEMY_RPC }}
+        
+    - name: Deploy contracts to local fork
+      run: npx hardhat run scripts/deploy.js --network localhost
+      env:
+        PRIVATE_KEY: ${{ secrets.TEST_PRIVATE_KEY }}
+        PROFIT_WALLET: ${{ secrets.PROFIT_WALLET }}
+        
+    - name: Run integration tests
+      run: npm run test:integration
+      env:
+        PRIVATE_KEY: ${{ secrets.TEST_PRIVATE_KEY }}
+
+  # Security Audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: [contracts-test]
+    defaults:
+      run:
+        working-directory: ./contracts
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: contracts/package-lock.json
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run Slither analysis
+      uses: crytic/slither-action@v0.3.0
+      with:
+        target: 'contracts/'
+        slither-config: 'contracts/slither.config.json'
+        fail-on: none
+        
+    - name: Run npm audit
+      run: npm audit --audit-level moderate
+
+  # Deploy to Mainnet (only on main branch)
+  deploy-mainnet:
+    name: Deploy to Mainnet
+    runs-on: ubuntu-latest
+    needs: [contracts-test, executor-test, frontend-test, integration-test, security-audit]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: contracts/package-lock.json
+        
+    - name: Install contract dependencies
+      run: |
+        cd contracts
+        npm ci
+        
+    - name: Deploy smart contracts to mainnet
+      run: |
+        cd contracts
+        npm run deploy:mainnet
+      env:
+        PRIVATE_KEY: ${{ secrets.MAINNET_PRIVATE_KEY }}
+        QUICKNODE_RPC: ${{ secrets.QUICKNODE_RPC }}
+        INFURA_RPC: ${{ secrets.INFURA_RPC }}
+        ALCHEMY_RPC: ${{ secrets.ALCHEMY_RPC }}
+        ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+        PROFIT_WALLET: ${{ secrets.PROFIT_WALLET }}
+        
+    - name: Verify contracts on Etherscan
+      run: |
+        cd contracts
+        npm run verify:mainnet
+      env:
+        ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+        
+    - name: Save deployment artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: mainnet-deployment
+        path: contracts/deployments/
+
+  # Deploy Frontend to Cloudflare Pages
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: [frontend-test, deploy-mainnet]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    defaults:
+      run:
+        working-directory: ./web/limitless-flash-dashboard
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: web/limitless-flash-dashboard/package-lock.json
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build frontend
+      run: npm run build
+      env:
+        VITE_CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
+        VITE_EXECUTOR_API_URL: ${{ secrets.EXECUTOR_API_URL }}
+        
+    - name: Deploy to Cloudflare Pages
+      uses: cloudflare/pages-action@v1
+      with:
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        projectName: limitless-flash-bot
+        directory: web/limitless-flash-dashboard/dist
+        gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+  # Deploy Executor to VPS
+  deploy-executor:
+    name: Deploy Executor
+    runs-on: ubuntu-latest
+    needs: [executor-test, deploy-mainnet]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT }}
+        script: |
+          cd /opt/limitless-flash-bot
+          git pull origin main
+          cd executor
+          npm install --production
+          npm run install:python
+          pm2 restart limitless-flash-bot || pm2 start index.js --name limitless-flash-bot
+          pm2 save
+
+  # Smoke Test After Deployment
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: [deploy-mainnet, deploy-frontend, deploy-executor]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        cd contracts
+        npm ci
+        
+    - name: Run smoke test
+      run: |
+        cd scripts
+        node smoke-test.js
+      env:
+        CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
+        EXECUTOR_API_URL: ${{ secrets.EXECUTOR_API_URL }}
+        FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+        PRIVATE_KEY: ${{ secrets.TEST_PRIVATE_KEY }}
+        QUICKNODE_RPC: ${{ secrets.QUICKNODE_RPC }}
+        
+    - name: Send deployment notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        text: 'LimitlessFlashBot deployed successfully to mainnet! 🚀'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      if: always()
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [smoke-test]
+    if: always()
+    
+    steps:
+    - name: Clean up artifacts
+      run: echo "Cleaning up temporary artifacts..."
+

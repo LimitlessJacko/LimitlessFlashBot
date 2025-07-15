@@ -1,0 +1,49 @@
+{
+  "name": "limitless-flash-bot",
+  "version": "1.0.0",
+  "description": "Production-grade Ethereum mainnet flash-loan arbitrage bot with MEV protection and quantum-enhanced profit signals",
+  "main": "index.js",
+  "scripts": {
+    "install:all": "npm install && cd contracts && npm install && cd ../executor && npm install && cd ../web && npm install",
+    "build:all": "cd contracts && npm run build && cd ../web && npm run build",
+    "test:all": "cd contracts && npm test && cd ../executor && npm test",
+    "deploy:contracts": "cd contracts && npm run deploy:mainnet",
+    "start:executor": "cd executor && npm start",
+    "start:web": "cd web && npm start",
+    "dev": "concurrently \"npm run start:executor\" \"npm run start:web\"",
+    "lint": "eslint . --ext .js,.ts,.tsx",
+    "format": "prettier --write ."
+  },
+  "keywords": [
+    "ethereum",
+    "flash-loan",
+    "arbitrage",
+    "mev",
+    "defi",
+    "aave",
+    "flashbots",
+    "quantum",
+    "tensorflow"
+  ],
+  "author": "LimitlessFlashBot",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
+  },
+  "workspaces": [
+    "contracts",
+    "executor",
+    "web"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/username/LimitlessFlashBot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/username/LimitlessFlashBot/issues"
+  },
+  "homepage": "https://github.com/username/LimitlessFlashBot#readme"
+}
+

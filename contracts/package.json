@@ -1,0 +1,47 @@
+{
+  "name": "limitless-flash-bot-contracts",
+  "version": "1.0.0",
+  "description": "Smart contracts for LimitlessFlashBot - Production-grade flash loan arbitrage bot",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "test:coverage": "npx hardhat coverage",
+    "test:gas": "REPORT_GAS=true npx hardhat test",
+    "deploy:mainnet": "npx hardhat run scripts/deploy.js --network mainnet",
+    "deploy:goerli": "npx hardhat run scripts/deploy.js --network goerli",
+    "deploy:sepolia": "npx hardhat run scripts/deploy.js --network sepolia",
+    "verify:mainnet": "npx hardhat verify --network mainnet",
+    "node": "npx hardhat node",
+    "console": "npx hardhat console",
+    "flatten": "npx hardhat flatten",
+    "size": "npx hardhat size-contracts",
+    "clean": "npx hardhat clean"
+  },
+  "keywords": [
+    "ethereum",
+    "solidity",
+    "flash-loan",
+    "arbitrage",
+    "aave",
+    "uniswap",
+    "mev",
+    "defi"
+  ],
+  "author": "LimitlessFlashBot Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomiclabs/hardhat-etherscan": "^3.1.8",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.25.0",
+    "hardhat-gas-reporter": "^1.0.10",
+    "solidity-coverage": "^0.8.12"
+  },
+  "dependencies": {
+    "@aave/core-v3": "^1.19.3",
+    "@openzeppelin/contracts": "^4.9.6",
+    "@uniswap/v2-periphery": "^1.1.0-beta.0",
+    "@uniswap/v3-periphery": "^1.4.4"
+  }
+}
